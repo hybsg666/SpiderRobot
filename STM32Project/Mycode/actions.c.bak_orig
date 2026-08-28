@@ -1,0 +1,437 @@
+#include "actions.h"
+#include "servo.h"
+#include "main.h"
+
+// ============================================================
+//  角度常量（请勿随意修改，根据实际舵机调试后统一调整）
+// ============================================================
+
+// ----- 小腿角度 -----
+#define KNEE_STAND      90    // 垂直站立
+#define KNEE_LIFT       180   // 举高（抬腿/展示用）
+#define KNEE_WALK_LIFT  110   // 行走时抬腿高度（至少弯30°才离地，100°只弯10°拖地）
+#define KNEE_SQUAT      140   // 蹲下时小腿回收
+#define KNEE_SPREAD     110   // 展开形态（四肢张开）
+#define KNEE_STRETCH    30    // 完全展平
+
+// ----- 大腿角度 -----
+#define HIP_STAND       40    // 自然站立
+#define HIP_CENTER      90    // 居中归零
+#define HIP_LIFT        30    // 抬腿（往前伸）
+#define HIP_SQUAT       60    // 蹲下
+#define HIP_SPREAD      70    // 展开形态（四肢张开）
+#define HIP_FORWARD     40    // 向前
+#define HIP_BACKWARD    140   // 向后
+
+// ============================================================
+//  基础动作
+// ============================================================
+
+// 1. 居中（全部 90°，调试用）
+void Action_Center(void)
+{
+    for (int i = 0; i < 4; i++) {
+        Servo_SetAngle((Servo_Channel_t)i, 90);
+    }
+    for (int i = 4; i < 8; i++) {
+        Servo_SetAngle((Servo_Channel_t)i, 90);
+    }
+    HAL_Delay(50);
+}
+
+// 2. 自然站立（大腿 40°，小腿 90°）
+void Action_Stand(void)
+{
+    Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+
+    Servo_SetAngle(SERVO_HIP_LF, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_RF, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_RB, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_LB, HIP_STAND);
+
+    HAL_Delay(50);
+}
+
+// 3. 蹲下
+void Action_Squat(void)
+{
+    for (int i = 0; i < 4; i++) {
+        Servo_SetAngle((Servo_Channel_t)i, KNEE_SQUAT);
+    }
+    for (int i = 4; i < 8; i++) {
+        Servo_SetAngle((Servo_Channel_t)i, HIP_SQUAT);
+    }
+    HAL_Delay(50);
+}
+
+// 4. 展开形态（四肢张开，大腿 70°，小腿 110°）
+void Action_Spread(void)
+{
+    Servo_SetAngle(SERVO_HIP_LF, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_RF, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_RB, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_LB, HIP_SPREAD);
+    HAL_Delay(80);
+
+    Servo_SetAngle(SERVO_KNEE_LF, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_RF, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_RB, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_LB, KNEE_SPREAD);
+    HAL_Delay(120);
+}
+
+// ============================================================
+//  单腿控制（展示/调试用）
+// ============================================================
+
+// 5. 抬腿（先展开四肢→再指定腿的小腿到 180°）
+void Action_LiftLeg(Servo_Channel_t knee_ch, Servo_Channel_t hip_ch)
+{
+    // 第一步：四肢展开（撑起身体）
+    Servo_SetAngle(SERVO_HIP_LF, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_RF, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_RB, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_LB, HIP_SPREAD);
+    HAL_Delay(80);
+
+    Servo_SetAngle(SERVO_KNEE_LF, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_RF, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_RB, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_LB, KNEE_SPREAD);
+    HAL_Delay(120);
+
+    // 第二步：将指定腿的小腿到 180°（大腿保持不变）
+    Servo_SetAngle(knee_ch, KNEE_LIFT);
+    HAL_Delay(100);
+}
+
+// 6. 放下腿（腿放下→四肢收回到站立态）
+void Action_LowerLeg(Servo_Channel_t knee_ch, Servo_Channel_t hip_ch)
+{
+    // 第一步：小腿回到 110°
+    Servo_SetAngle(knee_ch, KNEE_SPREAD);
+    HAL_Delay(120);
+
+    // 第二步：四肢回到站立态
+    Servo_SetAngle(SERVO_HIP_LF, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_RF, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_RB, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_LB, HIP_STAND);
+    HAL_Delay(80);
+
+    Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+    HAL_Delay(80);
+}
+
+// 7. 举手（四肢展开 → 举手 → 放下 → 收回）
+void Action_RaiseHand(Servo_Channel_t knee_ch, Servo_Channel_t hip_ch)
+{
+    // ===== 阶段1：展开（四肢张开） =====
+    Servo_SetAngle(SERVO_HIP_LF, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_RF, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_RB, HIP_SPREAD);
+    Servo_SetAngle(SERVO_HIP_LB, HIP_SPREAD);
+    HAL_Delay(300);
+
+    Servo_SetAngle(SERVO_KNEE_LF, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_RF, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_RB, KNEE_SPREAD);
+    Servo_SetAngle(SERVO_KNEE_LB, KNEE_SPREAD);
+    HAL_Delay(500);
+
+    // ===== 阶段2：举手（抬到 180°） =====
+    Servo_SetAngle(knee_ch, KNEE_LIFT);
+    HAL_Delay(800);
+
+    // ===== 阶段3：放手（回到 110°） =====
+    Servo_SetAngle(knee_ch, KNEE_SPREAD);
+    HAL_Delay(500);
+
+    // ===== 阶段4：收回（恢复站立） =====
+    Servo_SetAngle(SERVO_HIP_LF, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_RF, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_RB, HIP_STAND);
+    Servo_SetAngle(SERVO_HIP_LB, HIP_STAND);
+    HAL_Delay(300);
+
+    Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+    Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+    HAL_Delay(500);
+}
+
+// 8. 腿向前伸（仅大腿）
+void Action_MoveLegForward(Servo_Channel_t hip_ch)
+{
+    Servo_SetAngle(hip_ch, HIP_FORWARD);
+    HAL_Delay(100);
+}
+
+// 9. 腿向后伸（仅大腿）
+void Action_MoveLegBackward(Servo_Channel_t hip_ch)
+{
+    Servo_SetAngle(hip_ch, HIP_BACKWARD);
+    HAL_Delay(100);
+}
+
+// ============================================================
+//  转向角度常量
+// ============================================================
+// 左摆角度（用于左转时 LF+RF 前腿组）
+#define HIP_TURN_LEFT_LF    90    // LF 向左摆 = 90°
+#define HIP_TURN_LEFT_RF    0     // RF 向左摆 = 0°
+
+// 右摆角度（用于左转时 RB+LB 后腿组）
+#define HIP_TURN_RIGHT_RB   90    // RB 向右摆 = 90°
+#define HIP_TURN_RIGHT_LB   0     // LB 向右摆 = 0°
+
+// 向右摆则取反：
+// LF 向右摆 = 0°,   RF 向右摆 = 90°
+// RB 向左摆 = 0°,   LB 向左摆 = 90°
+
+// ============================================================
+//  行走步态
+// ============================================================
+
+// ===== 前进角度 =====
+// 前腿（LF/RF）：大腿前摆到 90°，同时小腿往前伸展
+// 后腿（RB/LB）：大腿前摆到 120°（后腿结构不同，需更大角度）
+#define HIP_WALK_FRONT      90    // 前腿前进大腿角度
+#define HIP_WALK_BACK       120   // 后腿前进大腿角度
+#define KNEE_WALK_REACH     65    // 前腿前伸时小腿伸展角度（<90 往前伸）
+
+// ===== 后退角度（与前进对称） =====
+// 前腿后退：60 - (90-60) = 30°
+// 后腿后退：60 - (120-60) = 0°
+#define HIP_WALK_FRONT_BWD  30    // 前腿后退大腿角度
+#define HIP_WALK_BACK_BWD   0     // 后腿后退大腿角度
+
+// ===== 转向抬腿 =====
+#define KNEE_TURN_LIFT      115   // 转向时小腿轻抬
+
+// ===== 步态延时（可根据舵机响应速度调整） =====
+#define WALK_SWING_DELAY    200   // 行走摆腿停留
+#define WALK_RETURN_DELAY   150   // 行走回正停留
+#define TURN_LIFT_DELAY     120   // 转向抬腿
+#define TURN_SWING_DELAY    300   // 转向摆髋停留
+#define TURN_LOWER_DELAY    120   // 转向落脚
+#define TURN_RETURN_DELAY   200   // 转向回正
+
+// ============================================================
+//  前进步态（修正版·对角小跑）
+//  实测方向：
+//    前腿(LF/RF)：角度增大 → 脚向前伸
+//    后腿(RB/LB)：角度减小 → 脚向前伸
+//  对角小跑：LF+RB 一组、RF+LB 一组，交替「抬腿 → 前摆 → 落地 → 后蹬」
+// ============================================================
+#define HIP_FWD_FRONT       85    // 前腿(LF/RF)前摆目标角（向前=增大）
+#define HIP_FWD_BACK        20    // 后腿(RB/LB)前摆目标角（向前=减小）
+#define HIP_PUSH            40    // 后蹬目标角（回站立位40，推动身体向前）
+#define WALK_PHASE_DELAY    300   // 每相位停留时间(ms)，舵机慢就调大
+
+// LF/RB 这两条腿的膝盖装得和 RF/LB 不一样，同样角度抬腿更低，需要再抬高点才离地
+#define KNEE_WALK_LIFT_HI   120   // LF/RB 抬腿高度（RF/LB 继续用110）
+
+// 10. 前进（对角小跑）
+void Walk_Forward(int steps)
+{
+    for (int s = 0; s < steps; s++) {
+
+//        // ===== 对角组A（左前LF + 右后RB）向前迈 =====
+        // ① 抬腿离地
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_WALK_LIFT_HI);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_WALK_LIFT_HI);
+        // ② 着地的组B（RF+LB）后蹬，推动身体向前
+        Servo_SetAngle(SERVO_HIP_RF, 20);
+        Servo_SetAngle(SERVO_HIP_LB, 20);
+        HAL_Delay(WALK_PHASE_DELAY);
+
+//        // ③ 组A 空中前摆
+        Servo_SetAngle(SERVO_HIP_LF, 0);   
+        Servo_SetAngle(SERVO_HIP_RB, 70);  
+        HAL_Delay(WALK_PHASE_DELAY);
+
+//        // ④ 组A 落地
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+        HAL_Delay(WALK_PHASE_DELAY);
+
+//        // ===== 对角组B（右前RF + 左后LB）向前迈 =====
+        // ① 抬腿离地
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_WALK_LIFT);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_WALK_LIFT);
+//        // ② 着地的组A（LF+RB）后蹬
+        Servo_SetAngle(SERVO_HIP_LF, 20);
+       Servo_SetAngle(SERVO_HIP_RB, 20);
+        HAL_Delay(WALK_PHASE_DELAY);
+
+////        // ③ 组B 空中前摆
+        Servo_SetAngle(SERVO_HIP_RF, 70);   // RF 向前=增大
+        Servo_SetAngle(SERVO_HIP_LB, 0);    // LB 向前=减小
+       HAL_Delay(WALK_PHASE_DELAY);
+
+//        // ④ 组B 落地
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+        HAL_Delay(WALK_PHASE_DELAY);
+		
+//		//        // ===== 对角组A（左前LF + 右后RB）向前迈 =====
+//        // ① 抬腿离地
+//        Servo_SetAngle(SERVO_KNEE_LF, KNEE_WALK_LIFT_HI);
+//        Servo_SetAngle(SERVO_KNEE_RB, KNEE_WALK_LIFT_HI);
+//        // ② 着地的组B（RF+LB）后蹬，推动身体向前
+//        Servo_SetAngle(SERVO_HIP_RF, 20);
+//        Servo_SetAngle(SERVO_HIP_LB, 20);
+//        HAL_Delay(WALK_PHASE_DELAY);
+
+////        // ③ 组A 空中前摆
+//        Servo_SetAngle(SERVO_HIP_LF, 0);   
+//        Servo_SetAngle(SERVO_HIP_RB, 70);  
+//        HAL_Delay(WALK_PHASE_DELAY);
+
+////        // ④ 组A 落地
+//        Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+//        Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+//        HAL_Delay(WALK_PHASE_DELAY);
+
+////        // ===== 对角组B（右前RF + 左后LB）向前迈 =====
+//        // ① 抬腿离地
+//        Servo_SetAngle(SERVO_KNEE_RF, KNEE_WALK_LIFT);
+//        Servo_SetAngle(SERVO_KNEE_LB, KNEE_WALK_LIFT);
+////        // ② 着地的组A（LF+RB）后蹬
+//        Servo_SetAngle(SERVO_HIP_LF, 20);
+//       Servo_SetAngle(SERVO_HIP_RB, 20);
+//        HAL_Delay(WALK_PHASE_DELAY);
+
+//////        // ③ 组B 空中前摆
+//        Servo_SetAngle(SERVO_HIP_RF, 70);   // RF 向前=增大
+//        Servo_SetAngle(SERVO_HIP_LB, 0);    // LB 向前=减小
+//       HAL_Delay(WALK_PHASE_DELAY);
+
+////        // ④ 组B 落地
+//        Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+//        Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+//        HAL_Delay(WALK_PHASE_DELAY);
+    }
+}
+
+// 11. 后退（对角小跑，与前进镜像：新值 = 80 - 前进值）
+void Walk_Backward(int steps)
+{
+    for (int s = 0; s < steps; s++) {
+        // ===== 对角组A（左前LF + 右后RB）向后迈 =====
+        // ① 抬腿离地
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_WALK_LIFT_HI);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_WALK_LIFT_HI);
+        // ② 着地的组B（RF+LB）回到站立位40，推动身体向后
+        Servo_SetAngle(SERVO_HIP_RF, 40);
+        Servo_SetAngle(SERVO_HIP_LB, 40);
+        HAL_Delay(WALK_PHASE_DELAY);
+
+        // ③ 组A 空中后摆
+        Servo_SetAngle(SERVO_HIP_LF, 80);   // LF 向后=增大
+        Servo_SetAngle(SERVO_HIP_RB, 10);   // RB 向后=减小
+        HAL_Delay(WALK_PHASE_DELAY);
+
+        // ④ 组A 落地
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+        HAL_Delay(WALK_PHASE_DELAY);
+
+        // ===== 对角组B（右前RF + 左后LB）向后迈 =====
+        // ① 抬腿离地
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_WALK_LIFT);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_WALK_LIFT);
+        // ② 着地的组A（LF+RB）回到站立位40
+        Servo_SetAngle(SERVO_HIP_LF, 40);
+        Servo_SetAngle(SERVO_HIP_RB, 40);
+        HAL_Delay(WALK_PHASE_DELAY);
+
+        // ③ 组B 空中后摆
+        Servo_SetAngle(SERVO_HIP_RF, 10);   // RF 向后=减小
+        Servo_SetAngle(SERVO_HIP_LB, 80);   // LB 向后=增大
+        HAL_Delay(WALK_PHASE_DELAY);
+
+        // ④ 组B 落地
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+        HAL_Delay(WALK_PHASE_DELAY);
+    }
+}
+
+// 12. 左转（抬腿→LF+RF向左摆、RB+LB向右摆→落脚→回正髋）
+void Turn_Left(int steps)
+{
+    for (int s = 0; s < steps; s++) {
+        // 1. 四膝抬腿（足端离地）
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_TURN_LIFT);
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_TURN_LIFT);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_TURN_LIFT);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_TURN_LIFT);
+        HAL_Delay(TURN_LIFT_DELAY);
+
+        // 2. 摆髋：前腿组（LF+RF）向左摆，后腿组（RB+LB）向右摆
+        Servo_SetAngle(SERVO_HIP_LF, HIP_TURN_LEFT_LF);    // 90°
+        Servo_SetAngle(SERVO_HIP_RF, HIP_TURN_LEFT_RF);     // 0°
+        Servo_SetAngle(SERVO_HIP_RB, HIP_TURN_RIGHT_RB);    // 90°
+        Servo_SetAngle(SERVO_HIP_LB, HIP_TURN_RIGHT_LB);    // 0°
+        HAL_Delay(TURN_SWING_DELAY);
+
+        // 3. 四膝落下（足端着地）
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+        HAL_Delay(TURN_LOWER_DELAY);
+
+        // 4. 回正髋关节（身体扭转）
+        Servo_SetAngle(SERVO_HIP_LF, HIP_STAND);
+        Servo_SetAngle(SERVO_HIP_RF, HIP_STAND);
+        Servo_SetAngle(SERVO_HIP_RB, HIP_STAND);
+        Servo_SetAngle(SERVO_HIP_LB, HIP_STAND);
+        HAL_Delay(TURN_RETURN_DELAY);
+    }
+}
+
+// 13. 右转（抬腿→LF+RF向右摆、RB+LB向左摆→落脚→回正髋）
+void Turn_Right(int steps)
+{
+    for (int s = 0; s < steps; s++) {
+        // 1. 四膝抬腿（足端离地）
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_TURN_LIFT);
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_TURN_LIFT);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_TURN_LIFT);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_TURN_LIFT);
+        HAL_Delay(TURN_LIFT_DELAY);
+
+        // 2. 摆髋：前腿组（LF+RF）向右摆，后腿组（RB+LB）向左摆
+        // LF 右摆 = 0°, RF 右摆 = 90°
+        Servo_SetAngle(SERVO_HIP_LF, HIP_TURN_LEFT_RF);     // 0°  (LF 向右摆)
+        Servo_SetAngle(SERVO_HIP_RF, HIP_TURN_LEFT_LF);     // 90° (RF 向右摆)
+        // RB 左摆 = 0°, LB 左摆 = 90°
+        Servo_SetAngle(SERVO_HIP_RB, HIP_TURN_RIGHT_LB);    // 0°  (RB 向左摆)
+        Servo_SetAngle(SERVO_HIP_LB, HIP_TURN_RIGHT_RB);    // 90° (LB 向左摆)
+        HAL_Delay(TURN_SWING_DELAY);
+
+        // 3. 四膝落下（足端着地）
+        Servo_SetAngle(SERVO_KNEE_LF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_RF, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_RB, KNEE_STAND);
+        Servo_SetAngle(SERVO_KNEE_LB, KNEE_STAND);
+        HAL_Delay(TURN_LOWER_DELAY);
+
+        // 4. 回正髋关节（身体扭转）
+        Servo_SetAngle(SERVO_HIP_LF, HIP_STAND);
+        Servo_SetAngle(SERVO_HIP_RF, HIP_STAND);
+        Servo_SetAngle(SERVO_HIP_RB, HIP_STAND);
+        Servo_SetAngle(SERVO_HIP_LB, HIP_STAND);
+        HAL_Delay(TURN_RETURN_DELAY);
+    }
+}
